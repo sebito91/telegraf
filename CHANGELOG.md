@@ -375,6 +375,7 @@
 - [#5114](https://github.com/influxdata/telegraf/issues/5114): Allow delta metrics in wavefront parser.
 
 ## v1.9 [2018-11-20]
+## v1.9 [2018-11-20]
 
 #### Release Notes
 

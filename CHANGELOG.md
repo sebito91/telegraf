@@ -375,6 +375,12 @@
 - [#5114](https://github.com/influxdata/telegraf/issues/5114): Allow delta metrics in wavefront parser.
 
 ## v1.9 [2018-11-20]
+## v1.9.1 [unreleased]
+
+### Bugfixes
+
+- [#5006](https://github.com/influxdata/telegraf/issues/5006): Fix boolean handling in splunkmetric serializer.
+
 ## v1.9 [2018-11-20]
 
 #### Release Notes

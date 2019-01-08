@@ -1,5 +1,11 @@
 ## v1.12 [unreleased]
 ## v1.9.2 [unreleased]
+## v1.9.3 [unreleased]
+
+#### Bugfixes
+
+- [#5261](https://github.com/influxdata/telegraf/pull/5261):  Fix arithmetic overflow in sqlserver input.
+
 ## v1.9.2 [2019-01-08]
 
 ### Bugfixes

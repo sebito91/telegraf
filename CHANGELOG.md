@@ -344,6 +344,12 @@
 - [#5346](https://github.com/influxdata/telegraf/pull/5346): Build official packages with Go 1.11.5.
 - [#5368](https://github.com/influxdata/telegraf/issues/5368): Fix definition of multiple syslog plugins.
 
+## v1.9.4 [unreleased]
+
+#### Bugfixes
+
+- [#5334](https://github.com/influxdata/telegraf/issues/5334): Fix skip_rows and skip_columns options in csv parser.
+
 ## v1.9.3 [2019-01-22]
 
 #### Bugfixes

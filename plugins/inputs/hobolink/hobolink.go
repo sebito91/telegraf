@@ -2,6 +2,7 @@ package hobolink
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -15,6 +16,12 @@ import (
 
 // dataPath is the default enpoint for metrics collection
 const dataPath = "/data/json"
+
+// customTime is our mapping for the timestamp returned by HOBOlink
+const customTime = "2006-01-02 15:04:05"
+
+// customTZ is the default timezone for processing the data points
+var customTZ = "UTC"
 
 // Description returns the plugin description.
 func (h *HOBOlink) Description() string {
@@ -31,6 +38,7 @@ func NewHOBOlink() *HOBOlink {
 	return &HOBOlink{
 		HTTPTimeout: internal.Duration{Duration: time.Second * 5},
 		Server:      fmt.Sprintf("https://webservice.hobolink.com/restv2%s", dataPath),
+		Timezone:    "UTC",
 	}
 }
 
@@ -49,6 +57,7 @@ func (h *HOBOlink) Gather(acc telegraf.Accumulator) error {
 		}
 
 		h.client = client
+		customTZ = h.Timezone
 	}
 
 	var wg sync.WaitGroup
@@ -57,6 +66,10 @@ func (h *HOBOlink) Gather(acc telegraf.Accumulator) error {
 	for _, serv := range h.SerialNumbers {
 		go func(s string, acc telegraf.Accumulator) {
 			defer wg.Done()
+
+			if err := h.gatherStats(s, acc); err != nil {
+				return
+			}
 		}(serv, acc)
 	}
 
@@ -66,7 +79,19 @@ func (h *HOBOlink) Gather(acc telegraf.Accumulator) error {
 
 // parseJSON handles the request to the API and processing the return values
 func (h *HOBOlink) parseJSON() (*Observations, error) {
+	loc, err := time.LoadLocation(h.Timezone)
+	if err != nil {
+		return nil, err
+	}
+
 	// prep the JSON request
+	t := time.Now()
+	ts, err := time.ParseInLocation(customTime, t.Format("2006-01-02 15:04:05"), loc)
+	if err != nil {
+		fmt.Printf("DEBUG -- did i break? %s, %s\n", customTZ, err.Error())
+		return nil, err
+	}
+
 	payload, err := json.Marshal(APIRequest{
 		Authentication: Authentication{
 			User:     h.User,
@@ -74,8 +99,8 @@ func (h *HOBOlink) parseJSON() (*Observations, error) {
 			Token:    h.Token,
 		},
 		Query: Query{
-			StartDateTime: time.Now(),
-			EndDateTime:   time.Now().Add(-1 * time.Hour),
+			EndDateTime:   ts.Format("2006-01-02 15:04:05"),
+			StartDateTime: ts.Add(-1 * time.Hour).Format("2006-01-02 15:04:05"),
 			Loggers:       h.SerialNumbers,
 		},
 	})
@@ -100,15 +125,22 @@ func (h *HOBOlink) parseJSON() (*Observations, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("hobolink: API responded with status-code %d, expected %d", resp.StatusCode, http.StatusOK)
+		var v APIError
+		if err := json.NewDecoder(resp.Body).Decode(&v); err != nil {
+			return nil, fmt.Errorf("hobolink: API status %d, expected %d", resp.StatusCode, http.StatusOK)
+		}
+
+		return nil, fmt.Errorf("hobolink: API status %d, expected %d; msg: %s", resp.StatusCode, http.StatusOK, v.Message)
 	}
 
 	// parse the response body to our payload
 	var v Observations
 	if err = json.NewDecoder(resp.Body).Decode(&v); err != nil {
+		fmt.Printf("bungled the decoder: %s\n", err.Error())
 		return nil, err
 	}
 
+	fmt.Printf("DEBUG -- v is: %+v\n", v)
 	return &v, nil
 }
 
@@ -131,6 +163,7 @@ func (h *HOBOlink) gatherStats(serial string, acc telegraf.Accumulator) error {
 func (h *HOBOlink) createHTTPClient() (*http.Client, error) {
 	tr := &http.Transport{
 		ResponseHeaderTimeout: h.HTTPTimeout.Duration,
+		TLSClientConfig:       &tls.Config{},
 	}
 
 	client := &http.Client{
@@ -139,6 +172,36 @@ func (h *HOBOlink) createHTTPClient() (*http.Client, error) {
 	}
 
 	return client, nil
+}
+
+// UnmarshalJSON to handle our custom timestamp returned from the HOBOlink API
+func (o *Observation) UnmarshalJSON(data []byte) error {
+	type Alias Observation
+	aux := &struct {
+		Timestamp string `json:"timestamp"`
+		*Alias
+	}{
+		Alias: (*Alias)(o),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	loc, err := time.LoadLocation(customTZ)
+	if err != nil {
+		fmt.Printf("DEBUG -- loadloc in unmarshal: %s, %s\n", customTZ, err.Error())
+		return err
+	}
+
+	ts, err := time.ParseInLocation(fmt.Sprintf("%sZ", customTime), aux.Timestamp, loc)
+	if err != nil {
+		fmt.Printf("DEBUG -- parseinloc: %s, %s\n", customTZ, err.Error())
+		return err
+	}
+
+	o.Timestamp = ts
+	return nil
 }
 
 const sampleConfig = `
@@ -164,7 +227,18 @@ const sampleConfig = `
   serial_numbers = [""]
 
   ## Timeout for HTTP requests to the HOBOlink API URL 
-  http_timeout = "5s"
+  # http_timeout = "5s"
+
+  ## Timezone allows you to provide an override for timestamps that
+  ## don't already include an offset
+  ## e.g. 04-06-2016 12:41:45 
+  ##
+  ## Default: "" which renders UTC
+  ## Options are as follows:
+  ##   1. Local             -- interpret based on machine localtime
+  ##   2. "Canada/Eastern"  -- Unix TZ values like those found in https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+  ##   3. UTC               -- or blank/unspecified, will return timestamp in UTC
+  # timezone = "Canada/Eastern"
 `
 
 // HOBOlink is a plugin to read stats from a list of IoT RX Sensors via the HOBOlink API
@@ -174,8 +248,9 @@ type HOBOlink struct {
 	Password      string
 	Server        string
 	Token         string
-	SerialNumbers []string
-	HTTPTimeout   internal.Duration
+	SerialNumbers []string          `json:"serial_numbers"`
+	HTTPTimeout   internal.Duration `json:"http_timeout"`
+	Timezone      string
 
 	client *http.Client
 }
@@ -196,9 +271,9 @@ type Authentication struct {
 
 // Query provides the query portion of the request payload
 type Query struct {
-	StartDateTime time.Time `json:"start_date_time"`
-	EndDateTime   time.Time `json:"end_date_time"`
-	Loggers       []string  `json:"loggers"`
+	StartDateTime string   `json:"start_date_time"`
+	EndDateTime   string   `json:"end_date_time"`
+	Loggers       []string `json:"loggers"`
 }
 
 // Observations is the higher-level struct that encompasses all observations
@@ -220,4 +295,11 @@ type Observation struct {
 	USUnit             string    `json:"us_unit"`
 	ScaledValue        float64   `json:"scaled_value"`
 	ScaluedUnit        string    `json:"scaled_unit"`
+}
+
+// APIError is a struct to help serialize the possible error messages from the API
+type APIError struct {
+	Code        string `json:"code"`
+	Message     string `json:"message"`
+	Description string `json:"description"`
 }

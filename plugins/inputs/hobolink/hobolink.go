@@ -36,7 +36,7 @@ func (h *HOBOlink) SampleConfig() string {
 // NewHOBOlink returns a new instance of the HOBOlink collector
 func NewHOBOlink() *HOBOlink {
 	return &HOBOlink{
-		HTTPTimeout: internal.Duration{Duration: time.Second * 5},
+		HttpTimeout: internal.Duration{Duration: time.Second * 5},
 		Server:      fmt.Sprintf("https://webservice.hobolink.com/restv2%s", dataPath),
 		Timezone:    "UTC",
 	}
@@ -159,13 +159,13 @@ func (h *HOBOlink) gatherStats(serial string, acc telegraf.Accumulator) error {
 // TODO: check if TLS support available
 func (h *HOBOlink) createHTTPClient() (*http.Client, error) {
 	tr := &http.Transport{
-		ResponseHeaderTimeout: h.HTTPTimeout.Duration,
+		ResponseHeaderTimeout: h.HttpTimeout.Duration,
 		TLSClientConfig:       &tls.Config{},
 	}
 
 	client := &http.Client{
 		Transport: tr,
-		Timeout:   h.HTTPTimeout.Duration,
+		Timeout:   h.HttpTimeout.Duration,
 	}
 
 	return client, nil
@@ -244,7 +244,7 @@ type HOBOlink struct {
 	Server        string
 	Token         string
 	SerialNumbers []string          `json:"serial_numbers"`
-	HTTPTimeout   internal.Duration `json:"http_timeout"`
+	HttpTimeout   internal.Duration `json:"http_timeout"`
 	Timezone      string
 
 	client *http.Client

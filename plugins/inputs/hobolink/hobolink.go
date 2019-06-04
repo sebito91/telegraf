@@ -88,7 +88,6 @@ func (h *HOBOlink) parseJSON() (*Observations, error) {
 	t := time.Now()
 	ts, err := time.ParseInLocation(customTime, t.Format("2006-01-02 15:04:05"), loc)
 	if err != nil {
-		fmt.Printf("DEBUG -- did i break? %s, %s\n", customTZ, err.Error())
 		return nil, err
 	}
 
@@ -136,11 +135,9 @@ func (h *HOBOlink) parseJSON() (*Observations, error) {
 	// parse the response body to our payload
 	var v Observations
 	if err = json.NewDecoder(resp.Body).Decode(&v); err != nil {
-		fmt.Printf("bungled the decoder: %s\n", err.Error())
 		return nil, err
 	}
 
-	fmt.Printf("DEBUG -- v is: %+v\n", v)
 	return &v, nil
 }
 
@@ -190,13 +187,11 @@ func (o *Observation) UnmarshalJSON(data []byte) error {
 
 	loc, err := time.LoadLocation(customTZ)
 	if err != nil {
-		fmt.Printf("DEBUG -- loadloc in unmarshal: %s, %s\n", customTZ, err.Error())
 		return err
 	}
 
 	ts, err := time.ParseInLocation(fmt.Sprintf("%sZ", customTime), aux.Timestamp, loc)
 	if err != nil {
-		fmt.Printf("DEBUG -- parseinloc: %s, %s\n", customTZ, err.Error())
 		return err
 	}
 

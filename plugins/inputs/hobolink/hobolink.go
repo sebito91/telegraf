@@ -148,8 +148,24 @@ func (h *HOBOlink) gatherStats(serial string, acc telegraf.Accumulator) error {
 		return err
 	}
 
-	for idx, obs := range v.ObservationList {
-		fmt.Printf(" %d. collecting: %+v\n", idx, obs)
+	for _, obs := range v.ObservationList {
+		tags := map[string]string{
+			"serial":        obs.LoggerSerialNumber,
+			"sensor_serial": obs.SensorSerialNumber,
+			"channel":       fmt.Sprintf("%d", obs.ChannelNumber),
+			"data_type":     obs.DataType,
+			"si_unit":       obs.SIUnit,
+			"us_unit":       obs.USUnit,
+			"scaled_unit":   obs.ScaluedUnit,
+		}
+
+		fields := map[string]interface{}{
+			"si_value":     obs.SIValue,
+			"us_value":     obs.USValue,
+			"scaled_value": obs.ScaledValue,
+		}
+
+		acc.AddFields("hobolink", fields, tags, obs.Timestamp)
 	}
 
 	return nil
@@ -280,7 +296,7 @@ type Observations struct {
 // Observation is the individual observation retrieved
 type Observation struct {
 	LoggerSerialNumber string    `json:"logger_sn"`
-	SensorSerialNumber string    `json:"serial_sn"`
+	SensorSerialNumber string    `json:"sensor_sn"`
 	ChannelNumber      int       `json:"channel_num"`
 	Timestamp          time.Time `json:"timestamp"`
 	DataType           string    `json:"data_type"`

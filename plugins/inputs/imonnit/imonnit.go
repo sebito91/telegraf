@@ -50,14 +50,45 @@ func (s *Sensor) Gather(acc telegraf.Accumulator) error {
 		s.c = c
 	}
 
+	fmt.Printf("DEBUG -- server: %s, token: %s\n", s.Server, s.Token)
+
 	sensors, err := s.SensorList()
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("DEBUG -- sensors yo! %+v\n", sensors)
+	acc, err := s.ProcessResults(sensors)
+	if err != nil {
+		return err
+	}
 
 	return nil
+}
+
+// ProcessResults takes in a list of sensor detail and returns the telegraf accumulator
+func (s *Sensor) ProcessResults(sensors *SensorList, acc telegraf.Accumulator) (telegraf.Accumulator, error) {
+	for _, sensor := range sensors.Result {
+		tags := map[string]string{
+			"serial":        obs.LoggerSerialNumber,
+			"sensor_serial": obs.SensorSerialNumber,
+			"channel":       fmt.Sprintf("%d", obs.ChannelNumber),
+			"data_type":     obs.DataType,
+			"si_unit":       obs.SIUnit,
+			"us_unit":       obs.USUnit,
+			"scaled_unit":   obs.ScaluedUnit,
+		}
+
+		fields := map[string]interface{}{
+			"si_value":     obs.SIValue,
+			"us_value":     obs.USValue,
+			"scaled_value": obs.ScaledValue,
+		}
+
+		acc.AddFields("hobolink", fields, tags, obs.Timestamp)
+	}
+
+	return acc, nil
+
 }
 
 // SensorList ...
@@ -128,12 +159,12 @@ type Sensor struct {
 
 // NetworkList is used to retrieve and parse the list of networks
 type NetworkList struct {
-	Method string    `json:"Method"`
-	Result []Network `json:"Result"`
+	Method string          `json:"Method"`
+	Result []NetworkDetail `json:"Result"`
 }
 
-// Network is use to outline the details of a particular network
-type Network struct {
+// NetworkDetail is use to outline the details of a particular network
+type NetworkDetail struct {
 	NetworkID           int    `json:"NetworkID"`
 	NetworkName         string `json:"NetworkName"`
 	SendNotification    bool   `json:"SendNotifications"`
@@ -142,8 +173,8 @@ type Network struct {
 
 // SensorList is used to retrieve and parse the list of sensors
 type SensorList struct {
-	Method string   `json:"Method"`
-	Result []Sensor `json:"Result"`
+	Method string         `json:"Method"`
+	Result []SensorDetail `json:"Result"`
 }
 
 // SensorDetail is used to outline the details of a given sensor and its measurements

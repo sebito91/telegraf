@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/influxdata/telegraf"
@@ -41,6 +43,10 @@ func init() {
 
 // Gather reads the stats from the HOBOlink API and writes it to the Accumulator.
 func (s *Sensor) Gather(acc telegraf.Accumulator) error {
+	if s.Token == "" {
+		return fmt.Errorf("token required for the imonnit API")
+	}
+
 	if s.c == nil {
 		c, err := s.createHTTPClient()
 		if err != nil {
@@ -57,8 +63,7 @@ func (s *Sensor) Gather(acc telegraf.Accumulator) error {
 		return err
 	}
 
-	acc, err := s.ProcessResults(sensors)
-	if err != nil {
+	if err := s.ProcessResults(sensors, acc); err != nil {
 		return err
 	}
 
@@ -66,28 +71,60 @@ func (s *Sensor) Gather(acc telegraf.Accumulator) error {
 }
 
 // ProcessResults takes in a list of sensor detail and returns the telegraf accumulator
-func (s *Sensor) ProcessResults(sensors *SensorList, acc telegraf.Accumulator) (telegraf.Accumulator, error) {
+func (s *Sensor) ProcessResults(sensors *SensorList, acc telegraf.Accumulator) error {
+	ts := time.Now()
 	for _, sensor := range sensors.Result {
-		tags := map[string]string{
-			"serial":        obs.LoggerSerialNumber,
-			"sensor_serial": obs.SensorSerialNumber,
-			"channel":       fmt.Sprintf("%d", obs.ChannelNumber),
-			"data_type":     obs.DataType,
-			"si_unit":       obs.SIUnit,
-			"us_unit":       obs.USUnit,
-			"scaled_unit":   obs.ScaluedUnit,
+		siteName := strings.Split(sensor.SensorName, "|")
+
+		tags := make(map[string]string)
+		fields := make(map[string]interface{})
+
+		if len(siteName) == 9 {
+			tags["customer"] = siteName[0]
+			tags["country"] = siteName[1]
+			tags["store"] = siteName[2]
+			tags["zone"] = siteName[3]
+			tags["equipment"] = siteName[4]
+			tags["equipmentType"] = siteName[5]
+			tags["cargo"] = siteName[6]
+			tags["sensor"] = siteName[7]
+			tags["sensorID"] = siteName[8]
+		} else {
+			tags["customer"] = sensor.SensorName
 		}
 
-		fields := map[string]interface{}{
-			"si_value":     obs.SIValue,
-			"us_value":     obs.USValue,
-			"scaled_value": obs.ScaledValue,
-		}
+		if strings.Contains(sensor.CurrentReading, "kWh") {
+			amps := make(map[string]interface{})
+			m := make(map[string]string)
+			for k, v := range tags {
+				m[k] = v
+			}
 
-		acc.AddFields("hobolink", fields, tags, obs.Timestamp)
+			vals := strings.Split(sensor.CurrentReading, ",")
+			tags["unit"] = "kWh"
+			m["unit"] = "amps"
+
+			fields["current"], _ = strconv.ParseFloat(strings.Split(vals[0], " ")[0], 64)
+			amps["average"], _ = strconv.ParseFloat(strings.Split(vals[1], " ")[3], 64)
+			amps["maximum"], _ = strconv.ParseFloat(strings.Split(vals[2], " ")[3], 64)
+			amps["minimum"], _ = strconv.ParseFloat(strings.Split(vals[3], " ")[3], 64)
+
+			// add the kWh measurement
+			acc.AddFields("imonnit", fields, tags, ts)
+
+			// add the amps measurements
+			acc.AddFields("imonnit", amps, m, ts)
+		} else {
+			vals := strings.Split(sensor.CurrentReading, "°")
+
+			tags["unit"] = "C"
+			fields["current"], _ = strconv.ParseFloat(vals[0], 64)
+
+			acc.AddFields("imonnit", fields, tags, ts)
+		}
 	}
 
-	return acc, nil
+	return nil
 
 }
 
@@ -189,7 +226,7 @@ type SensorDetail struct {
 	PowerSourceID               int    `json:"PowerSourceID"`
 	Status                      int    `json:"Status"`
 	CanUpdate                   bool   `json:"CanUpdate"`
-	CurrentReadng               string `json:"CurrentReading"`
+	CurrentReading              string `json:"CurrentReading"`
 	BatteryLevel                int    `json:"BatteryLevel"`
 	SignalStrength              int    `json:"SignalStrength"`
 	AlertsActive                bool   `json:"AlertsActvie"`
